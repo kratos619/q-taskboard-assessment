@@ -164,7 +164,8 @@ returned HTTP 200 with `created=0 failed=7`, each failure captured as
 never aborts the run. Transient errors (429/5xx/network) are retried with
 linear backoff (see [src/lib/export-tasks.ts](src/lib/export-tasks.ts)).
 
-_TODO: paste Airtable screenshot / share link here._
+**Airtable share link (records visible here):**
+https://airtable.com/appsGgp8LawFsRBWe/shrxTCXhMJTUeHXnK
 
 ## 6. Part 3a (comments) + 3b (activity feed) demos
 

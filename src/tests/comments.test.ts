@@ -8,6 +8,7 @@ vi.mock("@/lib/prisma", () => ({
     membership: { findUnique: vi.fn() },
     task: { findUnique: vi.fn() },
     comment: { findMany: vi.fn(), create: vi.fn() },
+    activity: { create: vi.fn() }, // best-effort logActivity fired by POST
   },
 }));
 
