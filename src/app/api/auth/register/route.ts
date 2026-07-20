@@ -4,8 +4,17 @@ import { prisma } from "@/lib/prisma";
 import { signToken } from "@/lib/jwt";
 import { registerSchema } from "@/schemas/auth";
 import { badRequest } from "@/lib/auth";
+import { rateLimit, clientIp, tooManyRequests } from "@/lib/rate-limit";
+
+// 10 signups per IP per hour — throttles automated account creation.
+const WINDOW_MS = 60 * 60 * 1000;
+const MAX_ATTEMPTS = 10;
 
 export async function POST(req: NextRequest) {
+  if (!rateLimit(`register:${clientIp(req)}`, MAX_ATTEMPTS, WINDOW_MS)) {
+    return tooManyRequests("too many attempts, try again later");
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = registerSchema.safeParse(body);
   if (!parsed.success) {

@@ -4,8 +4,17 @@ import { prisma } from "@/lib/prisma";
 import { signToken } from "@/lib/jwt";
 import { loginSchema } from "@/schemas/auth";
 import { badRequest, unauthorized } from "@/lib/auth";
+import { rateLimit, clientIp, tooManyRequests } from "@/lib/rate-limit";
+
+// 10 attempts per IP per 15 minutes — throttles brute force / credential stuffing.
+const WINDOW_MS = 15 * 60 * 1000;
+const MAX_ATTEMPTS = 10;
 
 export async function POST(req: NextRequest) {
+  if (!rateLimit(`login:${clientIp(req)}`, MAX_ATTEMPTS, WINDOW_MS)) {
+    return tooManyRequests("too many login attempts, try again later");
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = loginSchema.safeParse(body);
   if (!parsed.success) {
