@@ -4,11 +4,11 @@ import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, getToken } from "@/lib/api-client";
+import { apiFetch, getToken, getStoredUser } from "@/lib/api-client";
 import { Header } from "@/components/Header";
 import { StatusColumn } from "@/components/StatusColumn";
 import { TaskDetail } from "@/components/TaskDetail";
-import type { ApiProjectDetail, ApiTask, TaskStatus } from "@/types";
+import type { ApiProjectDetail, ApiTask, ApiActivity, TaskStatus } from "@/types";
 import { STATUS_ORDER } from "@/types";
 
 type PageProps = { params: Promise<{ id: string }> };
@@ -22,6 +22,7 @@ export default function ProjectPage({ params }: PageProps) {
   const [newTitle, setNewTitle] = useState("");
   const [newColumn, setNewColumn] = useState<TaskStatus>("todo");
   const [error, setError] = useState<string | null>(null);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getToken()) router.replace("/login");
@@ -32,6 +33,19 @@ export default function ProjectPage({ params }: PageProps) {
     queryFn: () => apiFetch<{ project: ApiProjectDetail }>(`/api/projects/${id}`),
   });
 
+  const { data: activityData } = useQuery({
+    queryKey: ["activity", id],
+    queryFn: () => apiFetch<{ activities: ApiActivity[] }>(`/api/projects/${id}/activity`),
+  });
+  const activities = activityData?.activities ?? [];
+
+  const ACTION_LABEL: Record<ApiActivity["action"], string> = {
+    task_created: "created a task",
+    status_changed: "changed status",
+    assignee_changed: "changed assignee",
+    comment_added: "commented",
+  };
+
   const createTask = useMutation({
     mutationFn: (input: { title: string; status: TaskStatus }) =>
       apiFetch<{ task: ApiTask }>(`/api/projects/${id}/tasks`, {
@@ -41,11 +55,30 @@ export default function ProjectPage({ params }: PageProps) {
     onSuccess: () => {
       setNewTitle("");
       queryClient.invalidateQueries({ queryKey: ["project", id] });
+      queryClient.invalidateQueries({ queryKey: ["activity", id] });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "create failed"),
   });
 
+  const exportToAirtable = useMutation({
+    mutationFn: () =>
+      apiFetch<{ summary: { total: number; created: number; updated: number; failed: unknown[] } }>(
+        `/api/projects/${id}/export`,
+        { method: "POST" }
+      ),
+    onMutate: () => setExportMsg(null),
+    onSuccess: ({ summary }) =>
+      setExportMsg(
+        `exported ${summary.total}: ${summary.created} created, ${summary.updated} updated` +
+          (summary.failed.length ? `, ${summary.failed.length} failed` : "")
+      ),
+    onError: (err) => setExportMsg(err instanceof Error ? err.message : "export failed"),
+  });
+
   const project = data?.project;
+  const myId = getStoredUser()?.id;
+  const myRole = project?.memberships.find((m) => m.user.id === myId)?.role;
+  const canExport = myRole === "admin" || myRole === "member";
   const tasksByStatus: Record<TaskStatus, ApiTask[]> = {
     todo: [],
     in_progress: [],
@@ -91,6 +124,22 @@ export default function ProjectPage({ params }: PageProps) {
                   owner: {project.owner.name} · {project.memberships.length} members
                 </p>
               </div>
+              {canExport && (
+                <div className="flex flex-col items-end gap-1">
+                  <button
+                    onClick={() => exportToAirtable.mutate()}
+                    disabled={exportToAirtable.isPending}
+                    className="bg-surface border border-border hover:border-accent text-sm font-medium rounded-md px-4 py-2 disabled:opacity-50"
+                  >
+                    {exportToAirtable.isPending ? "exporting…" : "export to Airtable"}
+                  </button>
+                  {exportMsg && (
+                    <p className="text-xs text-muted max-w-xs text-right" role="status">
+                      {exportMsg}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <section className="bg-surface border border-border rounded-lg p-4 mb-6">
@@ -147,6 +196,27 @@ export default function ProjectPage({ params }: PageProps) {
                 />
               ))}
             </div>
+
+            <section className="mt-10">
+              <h2 className="text-sm font-medium mb-3">recent activity</h2>
+              <ul className="bg-surface border border-border rounded-lg divide-y divide-border">
+                {activities.length === 0 && (
+                  <li className="px-4 py-3 text-xs text-muted">no activity yet</li>
+                )}
+                {activities.map((a) => (
+                  <li key={a.id} className="px-4 py-3 flex items-baseline justify-between gap-3 text-sm">
+                    <span>
+                      <span className="font-medium">{a.actor.name}</span>{" "}
+                      <span className="text-muted">{ACTION_LABEL[a.action]}</span>
+                      {a.detail && <span className="text-muted"> — {a.detail}</span>}
+                    </span>
+                    <span className="text-xs text-muted whitespace-nowrap">
+                      {new Date(a.createdAt).toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
 
             <section className="mt-10">
               <h2 className="text-sm font-medium mb-3">members</h2>
